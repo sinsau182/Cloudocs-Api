@@ -78,3 +78,14 @@ Body: form-data → key=file
 
 List files → GET /files
 (same Authorization header)
+
+
+
+## for running the app, add a .env file containing the given credentials
+
+AWS_ACCESS_KEY_ID=AKIA4FULDKAZB3LCI762
+AWS_SECRET_ACCESS_KEY=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
+AWS_REGION=ap-south-1
+AWS_BUCKET_NAME=cloudocs-typeface
+MONGO_URI=mongodb+srv://singhsaurav182001:2nxNgYzqBIMAtSJE@cluster0.ft9op.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+JWT_SECRET=saurav182
