@@ -12,7 +12,12 @@ import AWS from 'aws-sdk';
 
 dotenv.config();
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://your-frontend-domain.com'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Disposition', 'Content-Type', 'Content-Length'],
+}));
+
 app.use(express.json());
 
 mongoose.connect(process.env.MONGO_URI);
@@ -65,16 +70,29 @@ app.get('/files/:id', authMiddleware, async (req, res) => {
   }
 });
 
+app.delete('/files/:id', authMiddleware, async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    if (!file) return res.status(404).json({ message: 'File not found.' });
+    if (file.owner.toString() !== req.userId) return res.status(403).json({ message: 'Access denied' });
+
+    // Delete from MongoDB only
+    await File.deleteOne({ _id: file._id });
+    res.status(204).send();
+    
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/files/:id/download', authMiddleware, async (req, res) => {
   try {
     const file = await File.findById(req.params.id);
     if (!file) return res.status(404).json({ message: 'File not found.' });
     if (file.owner.toString() !== req.userId) return res.status(403).json({ message: 'Access denied' });
 
-    // Extract the S3 key (filename) from the S3 URL
-    // Example S3 URL: https://bucket-name.s3.amazonaws.com/1634567890-filename.txt
-    const urlParts = file.fileUrl.split('/');
-    const s3Key = urlParts.slice(3).join('/'); // after the bucket name
+    // Improved S3 key extraction
+    const s3Key = decodeURIComponent(file.fileUrl.split('.com/')[1]);
 
     const s3 = new AWS.S3({
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -82,22 +100,57 @@ app.get('/files/:id/download', authMiddleware, async (req, res) => {
       region: process.env.AWS_REGION,
     });
 
-    // Set headers for download
-    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.fileName)}"`);
 
-    // Stream the file from S3 through this API endpoint
     const s3Stream = s3.getObject({
       Bucket: process.env.AWS_BUCKET_NAME,
       Key: s3Key,
     }).createReadStream();
 
     s3Stream.on('error', (err) => {
+      console.error('S3 Error:', err, {
+        bucket: process.env.AWS_BUCKET_NAME,
+        key: s3Key,
+        fileUrl: file.fileUrl
+      });
       return res.status(500).json({ error: 'Failed to download file' });
     });
 
     s3Stream.pipe(res);
 
   } catch (err) {
+    console.error('Download Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/files/:id/preview', authMiddleware, async (req, res) => {
+  try {
+    const file = await File.findById(req.params.id);
+    if (!file) return res.status(404).json({ message: 'File not found.' });
+    if (file.owner.toString() !== req.userId) return res.status(403).json({ message: 'Access denied' });
+
+    const s3Key = decodeURIComponent(file.fileUrl.split('.com/')[1]);
+
+    const s3 = new AWS.S3({
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      region: process.env.AWS_REGION,
+    });
+
+    // Generate signed URL that expires in 5 minutes
+    const signedUrl = await s3.getSignedUrlPromise('getObject', {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: s3Key,
+      Expires: 300, // URL expires in 5 minutes
+      ResponseContentDisposition: 'inline', // This makes it preview in browser
+      ResponseContentType: file.type, // Use original file type
+    });
+
+    res.json({ previewUrl: signedUrl });
+
+  } catch (err) {
+    console.error('Preview Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
