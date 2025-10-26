@@ -5,6 +5,7 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
+
 // POST /auth/register
 router.post('/register', async (req, res) => {
   try {
@@ -40,4 +41,4 @@ router.post('/login', async (req, res) => {
   }
 });
 
-export default router;
+export default router; 
